@@ -211,8 +211,8 @@ class eval_classifier_optimized_graph:
         if warm_up_iteration < iteration + 1 <= total_run * 0.9:
           total_time += elapsed_time
 
-      total_batches = int(total_run * 0.9) - warm_up_iteration
-      time_average = total_time / total_batches
+      eval_interations = int(total_run * 0.9) - warm_up_iteration
+      time_average = total_time / eval_interations
       print('Batchsize: {0}'.format(str(batch_size)))
       print('Latency: {0:.4f} ms'.format(time_average * 1000))
       print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))

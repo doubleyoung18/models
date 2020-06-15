@@ -200,8 +200,8 @@ class model_infer:
         if warmup_iter < step + 1 <= total_iter * 0.9:
           total_time += elapsed_time
         
-      total_batches = int(total_iter * 0.9) - warmup_iter
-      time_average = total_time / total_batches
+      eval_interations = int(total_iter * 0.9) - warmup_iter
+      time_average = total_time / eval_interations
       print('Batchsize: {0}'.format(str(batch_size)))
       print('Latency: {0:.4f} ms'.format(time_average * 1000))
       print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))

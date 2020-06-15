@@ -143,8 +143,8 @@ if __name__ == "__main__":
 
       if t + 1 <= steps * 0.9:
         total_time += elapsed_time
-    total_batches = int(steps * 0.9)
-    time_average = total_time / total_batches
+    eval_interations = int(steps * 0.9)
+    time_average = total_time / eval_interations
     print('Batchsize: {0}'.format(str(batch_size)))
     print('Latency: {0:.4f} ms'.format(time_average * 1000))
     print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))

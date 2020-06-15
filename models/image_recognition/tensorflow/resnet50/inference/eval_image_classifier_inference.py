@@ -174,6 +174,7 @@ class eval_classifier_optimized_graph:
 
     if (not self.args.accuracy_only):
       iteration = 0
+      batch_size = self.args.batch_size
       warm_up_iteration = self.args.warmup_steps
       total_run = self.args.steps
       total_time = 0
@@ -195,27 +196,26 @@ class eval_classifier_optimized_graph:
 
         start_time = time.time()
         predictions = infer_sess.run(output_tensor, feed_dict={input_tensor: image_np})
-        time_consume = time.time() - start_time
+        elapsed_time = time.time() - start_time
 
         # Write out the file name, expected label, and top prediction
         self.write_results_output(predictions, tf_filenames, np_labels)
 
         # only add data loading time for real data, not for dummy data
         if self.args.data_location:
-          time_consume += data_load_time
+          elapsed_time += data_load_time
 
-        print('Iteration %d: %.6f sec' % (iteration, time_consume))
-        if iteration > warm_up_iteration:
-          total_time += time_consume
+        if (iteration + 1) % 10 == 0:
+          print("steps = {0}, {1} sec, {2} images/sec".format(iteration+1, str(elapsed_time), str(batch_size/elapsed_time)))
 
-      time_average = total_time / (iteration - warm_up_iteration)
-      print('Average time: %.6f sec' % (time_average))
+        if warm_up_iteration < iteration + 1 <= total_run * 0.9:
+          total_time += elapsed_time
 
-      print('Batch size = %d' % self.args.batch_size)
-      if (self.args.batch_size == 1):
-        print('Latency: %.3f ms' % (time_average * 1000))
-      # print throughput for both batch size 1 and 128
-      print('Throughput: %.3f images/sec' % (self.args.batch_size / time_average))
+      total_batches = int(total_run * 0.9) - warm_up_iteration
+      time_average = total_time / total_batches
+      print('Batchsize: {0}'.format(str(batch_size)))
+      print('Latency: {0:.4f} ms'.format(time_average * 1000))
+      print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))
 
     else: # accuracy check
       total_accuracy1, total_accuracy5 = (0.0, 0.0)

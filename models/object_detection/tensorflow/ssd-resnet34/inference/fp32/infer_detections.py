@@ -106,16 +106,16 @@ class ssd_resnet34_infer:
   def run_benchmark(self):
     print("Inference with dummy data.")
     with tf.compat.v1.Session(graph=self.freeze_graph, config=self.config) as sess:
-      
       input_images = sess.run(tf.random.truncated_normal(
           [self.args.batch_size, IMAGE_SIZE, IMAGE_SIZE, 3],
           dtype=tf.float32,
           stddev=10,
           name='synthetic_images'))
 
+      batch_size = self.args.batch_size
       total_iter = 1000
       warmup_iter = 200
-      ttime = 0.0
+      total_time = 0
 
       print('total iteration is {0}'.format(str(total_iter)))
       print('warm up iteration is {0}'.format(str(warmup_iter)))
@@ -123,20 +123,19 @@ class ssd_resnet34_infer:
       for step in range(total_iter):
         start_time = time.time()
         _ = sess.run(self.output_tensors, {self.input_tensor: input_images})
-        end_time = time.time()
+        elapsed_time = time.time() - start_time
 
-        duration = end_time - start_time
         if (step + 1) % 10 == 0:
-          print('steps = {0}, {1} sec'.format(str(step), str(duration)))
+          print("steps = {0}, {1} sec, {2} images/sec".format(step+1, str(elapsed_time), str(batch_size/elapsed_time)))
         
-        if step + 1 > warmup_iter:
-          ttime += duration
+        if warmup_iter < step + 1 <= total_iter * 0.9:
+          total_time += elapsed_time
         
-      total_batches = total_iter - warmup_iter
-      print ('Batchsize: {0}'.format(str(self.args.batch_size)))
-      print ('Time spent per BATCH: {0:10.4f} ms'.format(ttime / total_batches * 1000))
-      print ('Total samples/sec: {0:10.4f} samples/s'.format(total_batches * self.args.batch_size / ttime))
-  
+      total_batches = int(total_iter * 0.9) - warmup_iter
+      time_average = total_time / total_batches
+      print('Batchsize: {0}'.format(str(batch_size)))
+      print('Latency: {0:.4f} ms'.format(time_average * 1000))
+      print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))
 
   def __get_input(self):
     preprocessor = COCOPreprocessor(

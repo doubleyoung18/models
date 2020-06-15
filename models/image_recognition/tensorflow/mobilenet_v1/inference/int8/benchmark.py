@@ -134,12 +134,18 @@ if __name__ == "__main__":
               "".format(t+1, batch_size/elapsed_time))
 
     print("[Running benchmark steps...]")
-    total_time   = 0;
-    total_images = 0;
+    total_time = 0
     for t in range(steps):
       start_time = time.time()
       results = sess.run(output_tensor, {input_tensor: image_data})
       elapsed_time = time.time() - start_time
-      if((t+1) % 10 == 0):
-        print("steps = {0}, {1} images/sec"
-              "".format(t+1, batch_size/elapsed_time));
+      if (t+1) % 10 == 0:
+        print("steps = {0}, {1} sec, {2} images/sec".format(t+1, str(elapsed_time), str(batch_size/elapsed_time)))
+
+      if t + 1 <= steps * 0.9:
+        total_time += elapsed_time
+    total_batches = int(steps * 0.9)
+    time_average = total_time / total_batches
+    print('Batchsize: {0}'.format(str(batch_size)))
+    print('Latency: {0:.4f} ms'.format(time_average * 1000))
+    print('Throughput: {0:.4f} samples/s'.format(batch_size / time_average))

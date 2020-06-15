@@ -134,15 +134,17 @@ def build_model_columns():
     return wide_columns, deep_columns
 
 
-def build_estimator(model_dir, model_type):
+def build_estimator(model_dir, model_type, num_inter_threads, num_intra_threads):
     """Build an estimator appropriate for the given model type."""
     wide_columns, deep_columns = build_model_columns()
     hidden_units = [100, 75, 50, 25]
 
     # Create a tf.estimator.RunConfig to ensure the model is run on CPU, which
     # trains faster than GPU for this model.
-    run_config = tf.estimator.RunConfig().replace(
-        session_config=tf.compat.v1.ConfigProto(device_count={'GPU': 0}))
+    session_config = tf.compat.v1.ConfigProto(device_count={'GPU': 0})
+    session_config.inter_op_parallelism_threads = num_inter_threads
+    session_config.intra_op_parallelism_threads = num_intra_threads
+    run_config = tf.estimator.RunConfig().replace(session_config=session_config)
 
     if model_type == 'wide':
         return tf.estimator.LinearClassifier(
@@ -199,7 +201,7 @@ def main(argv):
 
     # Clean up the model directory if present
     # shutil.rmtree(flags.model_dir, ignore_errors=True)
-    model = build_estimator(flags.model_dir, flags.model_type)
+    model = build_estimator(flags.model_dir, flags.model_type, flags.num_inter_threads, flags.num_intra_threads)
 
     train_file = os.path.join(flags.data_dir, 'adult.data')
     test_file = os.path.join(flags.data_dir, 'adult.test')
@@ -231,14 +233,14 @@ def main(argv):
         print('%s: %s' % (key, results[key]))
     main_end = time.time()
     E2Eduration = main_end - main_start
-    print ('End-to-End duration is %s', E2Eduration)
+    print ('End-to-End duration: %s' % E2Eduration)
     evaluate_duration = main_end - inference_start
-    print ('Evaluation duration is %s', evaluate_duration)
+    print ('Evaluation duration: %s' % evaluate_duration)
 
-    if flags.batch_size == 1:
-        print('Latency is: %s', E2Eduration / num_records)
-    else:
-        print('Throughput is: %s', num_records / evaluate_duration)
+    batch_size=flags.batch_size
+    print('Batchsize: {0}'.format(str(batch_size)))
+    print('Latency: {0:.4f} ms'.format(E2Eduration / num_records * 1000))
+    print('Throughput: {0:.4f} samples/s'.format(num_records / evaluate_duration))
 
 
 class WideDeepArgParser(argparse.ArgumentParser):
@@ -252,6 +254,16 @@ class WideDeepArgParser(argparse.ArgumentParser):
             help='[default %(default)s] Valid model types:'
                  ' wide, deep, wide_deep.',
             metavar='<MT>')
+        self.add_argument(
+            "--num_inter_threads", "-e",
+            type=int, default=0,
+            help='The number of inter-thread.',
+            dest='num_inter_threads')
+        self.add_argument(
+            "--num_intra_threads", "-a",
+            type=int, default=0,
+            help='The number of intra-thread.',
+            dest='num_intra_threads')
         self.set_defaults(
             data_dir='/tmp/census_data',
             model_dir='/tmp/census_model',

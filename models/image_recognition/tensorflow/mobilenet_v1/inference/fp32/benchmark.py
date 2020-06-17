@@ -44,6 +44,7 @@ import numpy as np
 
 from google.protobuf import text_format
 import tensorflow as tf
+from tensorflow.python.client import timeline
 
 def load_graph(model_file):
   graph = tf.Graph()
@@ -103,6 +104,8 @@ if __name__ == "__main__":
   assert steps > 10, "Benchmark steps should be at least 10."
   num_inter_threads = args.num_inter_threads
   num_intra_threads = args.num_intra_threads
+  profile_mode = os.environ['PROFILE_MODE'] if 'PROFILE_MODE' in os.environ.keys() else None
+  timeline_path = os.environ['TIMELINE_PATH'] if 'TIMELINE_PATH' in os.environ.keys() else None
 
   graph = load_graph(model_file)
 
@@ -134,15 +137,38 @@ if __name__ == "__main__":
 
     print("[Running benchmark steps...]")
     total_time = 0
+    options = tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE)
+    run_metadata = tf.compat.v1.RunMetadata()
     for t in range(steps):
       start_time = time.time()
-      results = sess.run(output_tensor, {input_tensor: image_data})
+      if (t + 1) % 10 == 0 and (profile_mode == 'profile' or profile_mode == 'timeline'):
+        results = sess.run(output_tensor, {input_tensor: image_data},
+                           options=options, run_metadata=run_metadata)
+      else:
+        results = sess.run(output_tensor, {input_tensor: image_data})
       elapsed_time = time.time() - start_time
-      if (t+1) % 10 == 0:
-        print("steps = {0}, {1} sec, {2} images/sec".format(t+1, str(elapsed_time), str(batch_size/elapsed_time)))
 
+      if (t + 1) % 10 == 0:
+        print("steps = {0}, {1} sec, {2} images/sec"
+              .format(t+1, str(elapsed_time), str(batch_size/elapsed_time)))
+        if profile_mode == 'profile':
+          profiler = tf.compat.v1.profiler.Profiler(sess.graph)
+          step = -1
+          profiler.add_step(step, run_metadata)
+          option_builder = tf.compat.v1.profiler.ProfileOptionBuilder
+          opts = (option_builder(option_builder.time_and_memory()).
+                  select(['micros','bytes','occurrence']).order_by('micros')
+                  .with_max_depth(30).build())
+          profiler.profile_operations(options=opts)
+        elif profile_mode == 'timeline':
+          fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+          chrome_trace = fetched_timeline.generate_chrome_trace_format()
+          with tf.compat.v1.gfile.GFile(timeline_path, 'w') as f:
+            f.write(chrome_trace)
+      
       if t + 1 <= steps * 0.9:
         total_time += elapsed_time
+
     eval_interations = int(steps * 0.9)
     time_average = total_time / eval_interations
     print('Batchsize: {0}'.format(str(batch_size)))

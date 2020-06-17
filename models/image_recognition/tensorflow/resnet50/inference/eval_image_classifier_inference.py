@@ -22,11 +22,13 @@ import time
 from argparse import ArgumentParser
 
 import tensorflow as tf
+from tensorflow.python.client import timeline
 from tensorflow.python.tools.optimize_for_inference_lib import optimize_for_inference
 from tensorflow.python.framework import dtypes
 
 import datasets
 import numpy as np
+import os
 
 INPUTS = 'input'
 OUTPUTS = 'predict'
@@ -114,6 +116,8 @@ class eval_classifier_optimized_graph:
     """run benchmark with optimized graph"""
 
     print("Run inference")
+    profile_mode = os.environ['PROFILE_MODE'] if 'PROFILE_MODE' in os.environ.keys() else None
+    timeline_path = os.environ['TIMELINE_PATH'] if 'TIMELINE_PATH' in os.environ.keys() else None
 
     data_config = tf.compat.v1.ConfigProto()
     data_config.intra_op_parallelism_threads = self.args.data_num_intra_threads
@@ -179,6 +183,8 @@ class eval_classifier_optimized_graph:
       total_run = self.args.steps
       total_time = 0
 
+      options = tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE)
+      run_metadata = tf.compat.v1.RunMetadata()
       while num_remaining_images >= self.args.batch_size and iteration < total_run:
         iteration += 1
         tf_filenames = None
@@ -195,7 +201,11 @@ class eval_classifier_optimized_graph:
         num_remaining_images -= self.args.batch_size
 
         start_time = time.time()
-        predictions = infer_sess.run(output_tensor, feed_dict={input_tensor: image_np})
+        if (iteration + 1) % 10 == 0 and (profile_mode == 'profile' or profile_mode == 'timeline'):
+          predictions = infer_sess.run(output_tensor, feed_dict={input_tensor: image_np},
+                                       options=options, run_metadata=run_metadata)
+        else:
+          predictions = infer_sess.run(output_tensor, feed_dict={input_tensor: image_np})
         elapsed_time = time.time() - start_time
 
         # Write out the file name, expected label, and top prediction
@@ -206,7 +216,22 @@ class eval_classifier_optimized_graph:
           elapsed_time += data_load_time
 
         if (iteration + 1) % 10 == 0:
-          print("steps = {0}, {1} sec, {2} images/sec".format(iteration+1, str(elapsed_time), str(batch_size/elapsed_time)))
+          print("steps = {0}, {1} sec, {2} images/sec"
+                .format(iteration+1, str(elapsed_time), str(batch_size/elapsed_time)))
+          if profile_mode == 'profile':
+            profiler = tf.compat.v1.profiler.Profiler(infer_sess.graph)
+            step = -1
+            profiler.add_step(step, run_metadata)
+            option_builder = tf.compat.v1.profiler.ProfileOptionBuilder
+            opts = (option_builder(option_builder.time_and_memory()).
+                    select(['micros','bytes','occurrence']).order_by('micros')
+                    .with_max_depth(30).build())
+            profiler.profile_operations(options=opts)
+          elif profile_mode == 'timeline':
+            fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+            chrome_trace = fetched_timeline.generate_chrome_trace_format()
+            with tf.compat.v1.gfile.GFile(timeline_path, 'w') as f:
+                f.write(chrome_trace)
 
         if warm_up_iteration < iteration + 1 <= total_run * 0.9:
           total_time += elapsed_time

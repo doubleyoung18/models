@@ -42,6 +42,8 @@ import os
 import sys
 import time
 import tensorflow as tf  # pylint: disable=g-bad-import-order
+from tensorflow.python.client import timeline
+tf.compat.v1.disable_eager_execution()
 from official.utils.arg_parsers import parsers
 from official.utils.logs import hooks_helper
 
@@ -222,9 +224,18 @@ def main(argv):
         tensors_to_log={'average_loss': loss_prefix + 'head/truediv',
                         'loss': loss_prefix + 'head/weighted_loss/Sum'})
 
-    inference_start = time.time()
+    profile_mode = os.environ['PROFILE_MODE'] if 'PROFILE_MODE' in os.environ.keys() else None
+    timeline_path = os.environ['TIMELINE_PATH'] if 'TIMELINE_PATH' in os.environ.keys() else None
     # Train and evaluate the model every `flags.epochs_between_evals` epochs.
-    results = model.evaluate(input_fn=eval_input_fn)
+    if profile_mode == 'timeline':
+        profile_hook = tf.estimator.ProfilerHook(
+            save_steps=10, output_dir=timeline_path,
+            show_dataflow=True, show_memory=False)
+        inference_start = time.time()
+        results = model.evaluate(input_fn=eval_input_fn, hooks=[profile_hook])
+    else:
+        inference_start = time.time()
+        results = model.evaluate(input_fn=eval_input_fn)
 
     # Display evaluation metrics
     print('-' * 60)

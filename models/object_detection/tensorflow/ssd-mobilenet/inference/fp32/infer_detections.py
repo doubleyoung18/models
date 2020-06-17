@@ -20,6 +20,7 @@
 from __future__ import division
 
 import tensorflow as tf
+from tensorflow.python.client import timeline
 from tensorflow.python.data.experimental import parallel_interleave
 from tensorflow.python.data.experimental import map_and_batch
 from tensorflow.python.tools.optimize_for_inference_lib import optimize_for_inference
@@ -178,6 +179,8 @@ class model_infer:
           stddev=10,
           name='synthetic_images'))
 
+      profile_mode = os.environ['PROFILE_MODE'] if 'PROFILE_MODE' in os.environ.keys() else None
+      timeline_path = os.environ['TIMELINE_PATH'] if 'TIMELINE_PATH' in os.environ.keys() else None
       batch_size = self.args.batch_size
       total_iter = self.args.total_iter
       warmup_iter = self.args.warmup_iter
@@ -186,17 +189,39 @@ class model_infer:
       print('total iteration is {0}'.format(str(total_iter)))
       print('warm up iteration is {0}'.format(str(warmup_iter)))
 
+      options = tf.compat.v1.RunOptions(trace_level=tf.compat.v1.RunOptions.FULL_TRACE)
+      run_metadata = tf.compat.v1.RunMetadata()
       for step in range(total_iter):
         start_time = time.time()
         if self.args.data_location:
           input_images = self.data_sess.run([self.input_images])
           input_images = input_images[0]
-        _ = sess.run(self.output_tensors, {self.input_tensor: input_images})
+
+        if (step + 1) % 10 == 0 and (profile_mode == 'profile' or profile_mode == 'timeline'):
+          _ = sess.run(self.output_tensors, {self.input_tensor: input_images},
+                       options=options, run_metadata=run_metadata)
+        else:
+          _ = sess.run(self.output_tensors, {self.input_tensor: input_images})
         elapsed_time = time.time() - start_time
 
         if (step + 1) % 10 == 0:
-          print("steps = {0}, {1} sec, {2} images/sec".format(step+1, str(elapsed_time), str(batch_size/elapsed_time)))
-        
+          print("steps = {0}, {1} sec, {2} images/sec"
+                .format(step+1, str(elapsed_time), str(batch_size/elapsed_time)))
+          if profile_mode == 'profile':
+            profiler = tf.compat.v1.profiler.Profiler(sess.graph)
+            step = -1
+            profiler.add_step(step, run_metadata)
+            option_builder = tf.compat.v1.profiler.ProfileOptionBuilder
+            opts = (option_builder(option_builder.time_and_memory()).
+                    select(['micros','bytes','occurrence']).order_by('micros')
+                    .with_max_depth(30).build())
+            profiler.profile_operations(options=opts)
+          elif profile_mode == 'timeline':
+            fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+            chrome_trace = fetched_timeline.generate_chrome_trace_format()
+            with tf.compat.v1.gfile.GFile(timeline_path,'w') as f:
+                f.write(chrome_trace)
+
         if warmup_iter < step + 1 <= total_iter * 0.9:
           total_time += elapsed_time
         
